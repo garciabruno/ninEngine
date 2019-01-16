@@ -25,20 +25,30 @@ void Graphics::RenderFrame()
 	this->deviceContext->IASetInputLayout(this->vertexshader.GetInputLayout());
 	this->deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	this->deviceContext->RSSetState(this->rasterizerState.Get());
-	this->deviceContext->OMSetDepthStencilState(this->depthStencilState.Get(), STENCIL_REFERENCE_VALUE);
 	this->deviceContext->VSSetShader(vertexshader.GetShader(), NULL, 0);
 	this->deviceContext->PSSetShader(pixelshader.GetShader(), NULL, 0);
 
 	UINT stride = sizeof(Vertex);
 	UINT offset = 0;
 
-	//Red Tri
-	this->deviceContext->IASetVertexBuffers(0, 1, vertexBuffer.GetAddressOf(), &stride, &offset);
-	this->deviceContext->Draw(3, 0);
-
-	//Green Tri
-	this->deviceContext->IASetVertexBuffers(0, 1, vertexBuffer2.GetAddressOf(), &stride, &offset);
-	this->deviceContext->Draw(3, 0);
+	{
+		//For each outline, we'll have to clear the stencil so that previous shapes aren't obscuring new shapes
+		this->deviceContext->ClearDepthStencilView(this->depthStencilView.Get(), D3D11_CLEAR_STENCIL, 0.0f, 0);
+		{
+			//Green Tri (We have to draw green tri first so we know which pixels to omit for red tri)
+			this->deviceContext->OMSetDepthStencilState(this->depthStencilState_default.Get(), 0); //Use default stencil so all pixels update stencil (stencil ref is irrelevant here)
+			this->deviceContext->PSSetShader(NULL, NULL, 0); //DISABLE PIXEL SHADER SO WE AREN'T DRAWING GREEN TRI
+			this->deviceContext->IASetVertexBuffers(0, 1, vertexBuffer2.GetAddressOf(), &stride, &offset);
+			this->deviceContext->Draw(3, 0);
+		}
+		{
+			//Red Tri
+			this->deviceContext->OMSetDepthStencilState(this->depthStencilState_discard.Get(), 0); //use discard stencil and only draw where stencil value = 0 (pixel has not been accessed)
+			this->deviceContext->PSSetShader(pixelshader.GetShader(), NULL, 0); //ENABLE PIXEL SHADER SO WE CAN DRAW RED TRI
+			this->deviceContext->IASetVertexBuffers(0, 1, vertexBuffer.GetAddressOf(), &stride, &offset);
+			this->deviceContext->Draw(3, 0);
+		}
+	}
 
 	this->swapChain->Present(1, NULL);
 }
@@ -148,29 +158,47 @@ bool Graphics::InitializeDirectX(HWND hwnd, int width, int height)
 	D3D11_DEPTH_STENCIL_DESC depthstencildesc;
 	ZeroMemory(&depthstencildesc, sizeof(D3D11_DEPTH_STENCIL_DESC));
 
+	//We are ignoring depth so DepthEnable = FALSE and DepthFunc = NEVER
 	depthstencildesc.DepthEnable = FALSE;
 	depthstencildesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK::D3D11_DEPTH_WRITE_MASK_ALL;
-	depthstencildesc.DepthFunc = D3D11_COMPARISON_FUNC::D3D11_COMPARISON_LESS_EQUAL;	
+	depthstencildesc.DepthFunc = D3D11_COMPARISON_FUNC::D3D11_COMPARISON_NEVER;
 
 	depthstencildesc.StencilEnable = TRUE;
 	depthstencildesc.StencilReadMask = D3D11_DEFAULT_STENCIL_READ_MASK;
 	depthstencildesc.StencilWriteMask = D3D11_DEFAULT_STENCIL_WRITE_MASK;
 
-	depthstencildesc.FrontFace.StencilFunc = D3D11_COMPARISON_FUNC::D3D11_COMPARISON_NOT_EQUAL;
-	depthstencildesc.FrontFace.StencilFailOp = D3D11_STENCIL_OP_ZERO;
-	depthstencildesc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_INVERT;
+	depthstencildesc.FrontFace.StencilFunc = D3D11_COMPARISON_FUNC::D3D11_COMPARISON_ALWAYS; //In the default stencil state, always pass, don't even do a comparison function
+	depthstencildesc.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP; //KEEP STENCIL BUFFER VALUE (WILL NEVER FAIL SO TECHNICALLY IRRELEVANT)
+	/*
+	Explanation of "depthstencildesc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_INCR_SAT; "
+	INCREMENT & CLAMP VALUE - IF THE VALUE WAS 0 (DEFAULT), AND WE PASS TEST (WHICH WE WILL SINCE WE USE ALWAYS)
+	INCREMENT VALUE OF STENCIL BUFFER BY 1 AND CLAMP. MAX 255 I THINK?
+	THE DISCARD DEPTH STENCIL WILL USE THIS VALUE TO COMPARE TO SEE IF A PIXEL HAS BEEN WRITTEN TO IN THAT STENCIL
+	BUFFER LOCATION.*/
+	depthstencildesc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_INCR_SAT;
+	depthstencildesc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP; //KEEP STENCIL BUFFER VALUE (DEPTH IS DISABLED SO SHOULD NEVER FAIL? TECHNICALLY IRRELEVANT)
 
-	// Does this matter?
-	depthstencildesc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_INCR;
+	// We are not rendering backfaces, so never run any comparison function on backface (D3D11_COMPARISON_NEVER)
+	depthstencildesc.BackFace.StencilFunc = D3D11_COMPARISON_FUNC::D3D11_COMPARISON_NEVER;
+	depthstencildesc.BackFace.StencilFailOp = D3D11_STENCIL_OP_KEEP; //NOT RELEVANT, TEST NEVER OCCURS
+	depthstencildesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP; //NOT RELEVANT, TEST NEVER OCCURS
+	depthstencildesc.BackFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP; //NOT RELEVANT, TEST NEVER OCCURS
 
-	// We are not culling anything. Should this affect anything?
-	depthstencildesc.BackFace.StencilFunc = D3D11_COMPARISON_FUNC::D3D11_COMPARISON_EQUAL;
-	depthstencildesc.BackFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
-	depthstencildesc.BackFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+	hr = this->device->CreateDepthStencilState(&depthstencildesc, this->depthStencilState_default.GetAddressOf());
 
-	depthstencildesc.BackFace.StencilDepthFailOp = D3D11_STENCIL_OP_INCR;
+	if (FAILED(hr))
+	{
+		ErrorLogger::Log(hr, "Failed to create depth stencil state.");
+		return false;
+	}
 
-	hr = this->device->CreateDepthStencilState(&depthstencildesc, this->depthStencilState.GetAddressOf());
+	//Discard blend state (Just need to change a few things from default depth stencil)
+	depthstencildesc.FrontFace.StencilFunc = D3D11_COMPARISON_FUNC::D3D11_COMPARISON_EQUAL; //ONLY PASS IF THE SOURCE PIXEL VALUE = STENCILREF
+	depthstencildesc.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP; //KEEP STENCIL BUFFER VALUE (same as default)
+	depthstencildesc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP; //KEEP STENCIL BUFFER VALUE (Notice in default we incremented, but in this we don't! We only want to compare to the stencil value written by the previous stencil state)
+	depthstencildesc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP; //KEEP STENCIL BUFFER VALUE (same as default)
+
+	hr = this->device->CreateDepthStencilState(&depthstencildesc, this->depthStencilState_discard.GetAddressOf());
 
 	if (FAILED(hr))
 	{

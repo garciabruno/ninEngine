@@ -27,7 +27,8 @@ private:
 
 	Microsoft::WRL::ComPtr<ID3D11DepthStencilView> depthStencilView;
 	Microsoft::WRL::ComPtr<ID3D11Texture2D> depthStencilBuffer;
-	Microsoft::WRL::ComPtr<ID3D11DepthStencilState> depthStencilState;
+	Microsoft::WRL::ComPtr<ID3D11DepthStencilState> depthStencilState_default; //Default stencil where no pixels are discarded
+	Microsoft::WRL::ComPtr<ID3D11DepthStencilState> depthStencilState_discard; //Stencil where pixels that were previously written to will be discarded (pass stencilref = 0)
 
 	Microsoft::WRL::ComPtr<ID3D11RasterizerState> rasterizerState;
 };
