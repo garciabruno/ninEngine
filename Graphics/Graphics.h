@@ -9,6 +9,7 @@ class Graphics
 public:
 	bool Initialize(HWND hwnd, int width, int height);
 	void RenderFrame();
+	Vertex* GetSquareVertices(float x0, float y0, float x1, float y1, float width, float height, Vertex* v, unsigned int startIndex);
 private:
 	bool InitializeDirectX(HWND hwnd, int width, int height);
 	bool InitializeShaders();

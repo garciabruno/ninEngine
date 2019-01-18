@@ -1,7 +1,5 @@
 #include "Graphics.h"
 
-#define STENCIL_REFERENCE_VALUE 1.0f
-
 bool Graphics::Initialize(HWND hwnd, int width, int height)
 {
 	if (!InitializeDirectX(hwnd, width, height))
@@ -23,7 +21,7 @@ void Graphics::RenderFrame()
 	this->deviceContext->ClearDepthStencilView(this->depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 	this->deviceContext->IASetInputLayout(this->vertexshader.GetInputLayout());
-	this->deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	this->deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 	this->deviceContext->RSSetState(this->rasterizerState.Get());
 	this->deviceContext->VSSetShader(vertexshader.GetShader(), NULL, 0);
 	this->deviceContext->PSSetShader(pixelshader.GetShader(), NULL, 0);
@@ -39,18 +37,33 @@ void Graphics::RenderFrame()
 			this->deviceContext->OMSetDepthStencilState(this->depthStencilState_default.Get(), 0); //Use default stencil so all pixels update stencil (stencil ref is irrelevant here)
 			this->deviceContext->PSSetShader(NULL, NULL, 0); //DISABLE PIXEL SHADER SO WE AREN'T DRAWING GREEN TRI
 			this->deviceContext->IASetVertexBuffers(0, 1, vertexBuffer2.GetAddressOf(), &stride, &offset);
-			this->deviceContext->Draw(3, 0);
+			this->deviceContext->Draw(8, 0);
 		}
 		{
-			//Red Tri
+			//Red square
 			this->deviceContext->OMSetDepthStencilState(this->depthStencilState_discard.Get(), 0); //use discard stencil and only draw where stencil value = 0 (pixel has not been accessed)
 			this->deviceContext->PSSetShader(pixelshader.GetShader(), NULL, 0); //ENABLE PIXEL SHADER SO WE CAN DRAW RED TRI
 			this->deviceContext->IASetVertexBuffers(0, 1, vertexBuffer.GetAddressOf(), &stride, &offset);
-			this->deviceContext->Draw(3, 0);
+			this->deviceContext->Draw(8, 0);
 		}
 	}
 
-	this->swapChain->Present(1, NULL);
+	this->swapChain->Present(0, NULL);
+}
+
+Vertex * Graphics::GetSquareVertices(float x0, float y0, float x1, float y1, float width, float height, Vertex* v, unsigned int startIndex)
+{
+	float xx0 = 2.0f * (x0 - 0.5f) / width - 1.0f;
+	float yy0 = 1.0f - 2.0f * (y0 - 0.5f) / height;
+	float xx1 = 2.0f * (x1 - 0.5f) / width - 1.0f;
+	float yy1 = 1.0f - 2.0f * (y1 - 0.5f) / height;
+
+	v[startIndex] = Vertex(xx0, yy0, 0.0f, 0.0f, 1.0f, 0.0f);
+	v[startIndex + 1] = Vertex(xx1, yy0, 0.0f, 0.0f, 1.0f, 0.0f);
+	v[startIndex + 2] = Vertex(xx0, yy1, 0.0f, 0.0f, 1.0f, 0.0f);
+	v[startIndex + 3] = Vertex(xx1, yy1, 0.0f, 0.0f, 1.0f, 0.0f);
+
+	return v;
 }
 
 bool Graphics::InitializeDirectX(HWND hwnd, int width, int height)
@@ -278,19 +291,18 @@ bool Graphics::InitializeShaders()
 
 bool Graphics::InitializeScene()
 {
-	//Red Triangle
-	Vertex v[] =
-	{
-		Vertex(-0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 0.0f), //Bottom Left 
-		Vertex(0.0f, 0.5f, 0.0f, 1.0f, 0.0f, 0.0f), //Top Middle
-		Vertex(0.5f, -0.5f, 0.0f, 1.0f, 0.0f, 0.0f), //Bottom Right 
-	};
+	// Green square
+
+	Vertex v[8];
+
+	GetSquareVertices(20.0f, 20.0f, 250.0f, 500.f, 800.0f, 600.0f, v, 0);
+	GetSquareVertices(50.0f, 50.0f, 280.0, 530.0f, 800.0f, 600.0f, v, 4);
 
 	D3D11_BUFFER_DESC vertexBufferDesc;
 	ZeroMemory(&vertexBufferDesc, sizeof(vertexBufferDesc));
 
 	vertexBufferDesc.Usage = D3D11_USAGE_DEFAULT;
-	vertexBufferDesc.ByteWidth = sizeof(Vertex) * ARRAYSIZE(v);
+	vertexBufferDesc.ByteWidth = sizeof(Vertex) * ARRAYSIZE(v);	
 	vertexBufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 	vertexBufferDesc.CPUAccessFlags = 0;
 	vertexBufferDesc.MiscFlags = 0;
@@ -304,16 +316,15 @@ bool Graphics::InitializeScene()
 	{
 		ErrorLogger::Log(hr, "Failed to create vertex buffer.");
 		return false;
-	}
+	}	
 
-	//Triangle 2 (Green)
-	//Triangle Verts
-	Vertex v2[] =
-	{
-		Vertex(-0.25f, -0.25f, 1.0f, 0.0f, 1.0f, 0.0f), //Bottom Left 
-		Vertex(0.00f, 0.25f, 1.0f, 0.0f, 1.0f, 0.0f), //Top Middle
-		Vertex(0.25f, -0.25f, 1.0f, 0.0f, 1.0f, 0.0f), //Bottom Right 
-	};
+	float sideThickness = 5.0f;
+	float topThickness= 5.0f;
+	
+	Vertex v2[8];
+
+	GetSquareVertices(20.0f + sideThickness, 20.0f + topThickness, 250.0f - sideThickness, 500.0f - topThickness, 800.0f, 600.0f, v2, 0);
+	GetSquareVertices(50.0f + sideThickness, 50.0f + topThickness, 280.0f - sideThickness, 530.0f - topThickness, 800.0f, 600.0f, v2, 4);
 
 	ZeroMemory(&vertexBufferDesc, sizeof(vertexBufferDesc));
 
